@@ -1,0 +1,25 @@
+{
+  "name": "estate-contracts",
+  "version": "1.0.0",
+  "description": "",
+  "main": "truffle-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BatmansButler/estate-contracts.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/BatmansButler/estate-contracts/issues"
+  },
+  "homepage": "https://github.com/BatmansButler/estate-contracts#readme",
+  "dependencies": {
+    "@openzeppelin/contracts": "^3.2.1-solc-0.7"
+  }
+}
