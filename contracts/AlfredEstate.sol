@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @author Alfred.Estate
 contract AlfredEstate is AccessControl {
     // Define access control roles
+    bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
     bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
     bytes32 public constant BENEFICIARY_ROLE = keccak256("BENEFICIARY_ROLE");
     // bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
@@ -41,11 +42,22 @@ contract AlfredEstate is AccessControl {
 
 
 
-    /// @notice Initialize new  estate to be owned by the caller
+    /// @notice Initialize new estate to be owned by the caller
     constructor() {
+        // TODO: Note, the owner will need to have their DEFAULT_ADMIN_ROLE permission revoked upon death
         // Grant the contract deployer the default admin role: it will be able
         // to grant and revoke any roles
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        //_setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+
+        // Grant the contract deployer the ownership role
+        _setupRole(OWNER_ROLE, msg.sender);
+
+        // Enable members of the OWNER role to administer other roles
+        _setRoleAdmin(OWNER_ROLE, OWNER_ROLE);  // TODO: Test, does this work as expected?
+        _setRoleAdmin(EXECUTOR_ROLE, OWNER_ROLE);
+        _setRoleAdmin(BENEFICIARY_ROLE, OWNER_ROLE);
+        _setRoleAdmin(GNOSIS_SAFE_ROLE, OWNER_ROLE);
+
         // Set the estate owner as alive
         liveness = Lifesign.Alive;
     }
@@ -71,7 +83,7 @@ contract AlfredEstate is AccessControl {
     /// @param amount How much ETH to send from the estate in Wei
     /// @return Success of transfer
     function sendEth(address payable recipient, uint256 amount) public returns(bool) {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Caller is not an admin");
+        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
         return recipient.send(amount);
     }
 
@@ -81,8 +93,31 @@ contract AlfredEstate is AccessControl {
     /// @param amount How much of token to send from the estate in smallest unit
     /// @return Success of transfer
     function sendToken(address payable recipient, address token, uint256 amount) public returns(bool) {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Caller is not an admin");
+        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
         return IERC20(token).transfer(recipient, amount);
+    }
+
+    /// @notice Set address as the estate's Gnosis Safe and grant it ownership permissions
+    /// @dev The zero address will revoke any current Gnosis Safe permissions
+    /// @param _gnosisSafe Address of the Gnosis Safe contract to grant co-ownership of the estate
+    function setGnosisSafe(address _gnosisSafe) public {
+        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
+
+        // Currently only one concurrent Gnosis Safe is supported, revoke
+        // access to any others already present
+        address oldGnosisSafe;
+        while(getRoleMemberCount(GNOSIS_SAFE_ROLE) > 0) {
+            oldGnosisSafe = getRoleMember(GNOSIS_SAFE_ROLE, 0);
+            revokeRole(GNOSIS_SAFE_ROLE, oldGnosisSafe);
+            revokeRole(OWNER_ROLE, oldGnosisSafe);
+        }
+
+        // Check if the new address is the zero address
+        if(_gnosisSafe != address(0)) {
+            // Grant GNOSIS_SAFE and OWNER permissions to the Gnosis Safe
+            grantRole(GNOSIS_SAFE_ROLE, _gnosisSafe);
+            grantRole(OWNER_ROLE, _gnosisSafe);
+        }
     }
 
     function setAlive() internal notDead {
