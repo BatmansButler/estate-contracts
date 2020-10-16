@@ -44,8 +44,12 @@ contract EndowlEstate  {
     /// @notice Estate owner's last known lifesign (0: Alive, 1: Uncertain, 2: Dead, 3: PlayingDead)
     Lifesign public liveness;
 
-    // uint256 public declareDeadAfter;
-    // uint256 public uncertaintyPeriod = 8 weeks;
+    /// @notice If not zero, the timestamp after which the estate owner may be declared dead
+    uint256 public declareDeadAfter;
+    /// @notice The amount of time after death is reported before it can be confirmed
+    uint256 public uncertaintyPeriod = 8 weeks;
+
+    // TODO: Ability to modify uncertaintyPeriod
 
     // Dead Man's Switch settings
     /// @notice Is the dead man's switch enabled
@@ -119,7 +123,7 @@ contract EndowlEstate  {
 
     modifier onlyOwner() {
         require(msg.sender == owner || msg.sender == gnosisSafe, "Caller is not the owner");
-        require(liveliness != Lifesigns.Dead, "Owner is no longer alive");
+        require(liveness != Lifesign.Dead, "Owner is no longer alive");
         _;
     }
 
@@ -134,10 +138,10 @@ contract EndowlEstate  {
     }
 
     modifier onlyController() {
-        if(liveliness == Lifesigns.SimulatedDead) {
+        if(liveness == Lifesign.PlayingDead) {
             // The owner is simulating death
             require(msg.sender == owner || msg.sender == gnosisSafe || msg.sender == executor, "Caller is not the owner or executor and the owner is simulating death");
-        } else if(liveliness != Lifesigns.Dead) {
+        } else if(liveness != Lifesign.Dead) {
             // The owner is not dead or simulating death
             require(msg.sender == owner || msg.sender == gnosisSafe, "Caller is not the owner and the owner is still alive");
         } else {
@@ -151,10 +155,10 @@ contract EndowlEstate  {
         if(msg.sender == who) {
             require(beneficiaryIndex[who] > 0, "Address is not a registered beneficiary");
         } else {
-            if(liveliness == Lifesigns.SimulatedDead) {
+            if(liveness == Lifesign.PlayingDead) {
                 // The owner is simulating death
                 require(msg.sender == owner || msg.sender == gnosisSafe || msg.sender == executor, "Caller is not the beneficiary, owner, or executor and the owner is simulating death");
-            } else if(liveliness != Lifesigns.Dead) {
+            } else if(liveness != Lifesign.Dead) {
                 // The owner is not dead or simulating death
                 require(msg.sender == owner || msg.sender == gnosisSafe, "Caller is not the beneficiary or the owner and the owner is still alive");
             } else {
@@ -180,13 +184,18 @@ contract EndowlEstate  {
         _;
     }
 
+    modifier notUncertain() {
+        require(liveness != Lifesign.Uncertain, "Owner's liveness is already uncertain'");
+        _;
+    }
+
     modifier notDead() {
-        require(liveliness != Lifesigns.Dead, "Owner is no longer alive");
+        require(liveness != Lifesign.Dead, "Owner is no longer alive");
         _;
     }
 
     modifier onlyDead() {
-        require(liveliness == Lifesigns.Dead || liveliness == Lifesigns.SimulatedDead, "Owner has not been confirmed as dead");
+        require(liveness == Lifesign.Dead || liveness == Lifesign.PlayingDead, "Owner has not been confirmed as dead");
         _;
     }
 
@@ -195,12 +204,30 @@ contract EndowlEstate  {
     /// @dev To avoid exceeding gas limit don't perform any other actions
     receive() external payable { }
 
+
+    /// @notice Called by beneficiary or executor after owner has been reported dead and the waiting period has passed to establish confirmation of death
+    function confirmDeath() public onlyMember {
+        setDead();
+    }
+
+    /// @notice Called by beneficiary or executor to report death of the estate owner
+    function reportDeath() public onlyMember {
+        require(isDMSwitchEnabled, "Dead Man's Switch is not enabled");
+        require((dMSwitchLastCheckin + dMSwitchCheckinSeconds) < block.timestamp, "Dead Man's Switch timeout has not been reached");
+        setUncertain();
+    }
+
+    /// @notice Called by estate owner to confirm they are still alive
+    function confirmLife() public onlyOwner {
+        setAlive();
+    }
+
     /// @notice Send ETH from estate
     /// @param recipient Address to send ETH to
     /// @param amount How much ETH to send from the estate in Wei
     /// @return Success of transfer
-    function sendEth(address payable recipient, uint256 amount) public returns(bool) {
-        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
+    function sendEth(address payable recipient, uint256 amount) public onlyOwner returns(bool) {
+//        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
         return recipient.send(amount);
     }
 
@@ -209,76 +236,35 @@ contract EndowlEstate  {
     /// @param token Address of ERC20 token to send
     /// @param amount How much of token to send from the estate in smallest unit
     /// @return Success of transfer
-    function sendToken(address payable recipient, address token, uint256 amount) public returns(bool) {
-        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
+    function sendToken(address payable recipient, address token, uint256 amount) public onlyOwner returns(bool) {
+//        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
         return IERC20(token).transfer(recipient, amount);
     }
 
-    /// @notice Set address as the estate's Gnosis Safe and grant it ownership permissions
-    /// @dev The zero address will revoke any current Gnosis Safe permissions
-    /// @param _gnosisSafe Address of the Gnosis Safe contract to grant co-ownership of the estate
-    function setGnosisSafe(address _gnosisSafe) public {
-        require(hasRole(OWNER_ROLE, msg.sender), "Caller is not the estate owner");
-
-        // Currently only one concurrent Gnosis Safe is supported, revoke
-        // access to any others already present
-        address oldGnosisSafe;
-        while(getRoleMemberCount(GNOSIS_SAFE_ROLE) > 0) {
-            oldGnosisSafe = getRoleMember(GNOSIS_SAFE_ROLE, 0);
-            revokeRole(GNOSIS_SAFE_ROLE, oldGnosisSafe);
-            revokeRole(OWNER_ROLE, oldGnosisSafe);
-        }
-
-        // Check if the new address is the zero address
-        if(_gnosisSafe != address(0)) {
-            // Grant GNOSIS_SAFE and OWNER permissions to the Gnosis Safe
-            _grantRole(GNOSIS_SAFE_ROLE, _gnosisSafe);
-            _grantRole(OWNER_ROLE, _gnosisSafe);
-        }
-    }
-
+    /// @notice Set estate owner as alive and reset the dead man's switch timer if it's enabled
     function setAlive() internal notDead {
         emit ConfirmationOfLife(msg.sender);
         liveness = Lifesign.Alive;
-        // declareDeadAfter = 0; // Revisit if this is needed for oracle code?
+        declareDeadAfter = 0;
         if(isDMSwitchEnabled) {
             dMSwitchLastCheckin = block.timestamp;
         }
     }
 
-    // TODO: Incorporate this into an explicit flow...
-    function setUncertain() internal notDead {
+    /// @notice Set estate owner's liveness as uncertain and establish time limit before death may be declared
+    // Require notUncertain to prevent members from resetting the uncertaintyPeriod once already in an uncertain state
+    function setUncertain() internal notDead notUncertain {
         emit ReportOfDeath(msg.sender);
         liveness = Lifesign.Uncertain;
-        // declareDeadAfter = now + uncertaintyPeriod;
+        declareDeadAfter = block.timestamp + uncertaintyPeriod;
     }
 
-    // TODO: Explicitly define and describe the flow of actions that lead to confirmation of death
     /// @notice If conditions permit, set the owner of the estate as dead
     function setDead() internal notDead {
         // Check if conditions have been met to declare death
-        /*
-        if(liveness == Lifesign.Uncertain && declareDeadAfter != 0 && declareDeadAfter < block.timestamp) {
-            // Oracle marked lifesigns as uncertain and enough time has passed. Okay to set owner as dead.
-        } else if(isDeadMansSwitchEnabled && deadMansSwitchLastCheckin + (deadMansSwitchCheckinSeconds) < block.timestamp) {
-            // Deadmansswitch is enabled and timeout since last checkin has passed.  Okay to set owner as dead.
-        } else {
-            // Conditions have not been met.
-            revert("Not dead yet");
-        }
-
-        */
-        // TODO: finish this...
-        // TODO: contestation period...
-
-        if(isDMSwitchEnabled && dMSwitchLastCheckin + (dMSwitchCheckinSeconds) < block.timestamp) {
-            // Dead man's switch is enabled and time since last checkin has exceeded limit.
-            // Okay to set owner as dead.
-        } else {
-            // Conditions have not been met.
-            revert("Conditions to mark as dead have not been met");
-        }
-
+        require(liveness == Lifesign.Uncertain, "Estate owners lifesigns are not currently in dispute");
+        require(declareDeadAfter != 0, "No death confirmation timer has been set");
+        require(declareDeadAfter < block.timestamp, "Not enough time has passed to confirm death");
         emit ConfirmationOfDeath();
         liveness = Lifesign.Dead;
     }

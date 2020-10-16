@@ -6,23 +6,11 @@ const BENEFICIARY_ROLE = web3.utils.keccak256("BENEFICIARY_ROLE");
 const GNOSIS_SAFE_ROLE = web3.utils.keccak256("GNOSIS_SAFE_ROLE");
 
 contract("EndowlEstate", async accounts => {
-    it("should have 1 initial owner", async () => {
-        let instance = await EndowlEstate.deployed();
-        let ownerCount = await instance.getRoleMemberCount(OWNER_ROLE);
-        assert.equal(ownerCount, 1);
-    });
-
     it("should be owned by the first account", async () => {
         let instance = await EndowlEstate.deployed();
-        let owner = await instance.getRoleMember(OWNER_ROLE, 0);
+        let owner = await instance.owner();
         assert.equal(owner, accounts[0]);
     })
-
-    it("should have 0 initial executors", async () => {
-        let instance = await EndowlEstate.deployed();
-        let ownerCount = await instance.getRoleMemberCount(EXECUTOR_ROLE);
-        assert.equal(ownerCount, 0);
-    });
 
     it("should have an initial 'liveness' value of 0 (ie. 'Alive')", async () => {
         let instance = await EndowlEstate.deployed();
@@ -63,5 +51,6 @@ contract("EndowlEstate", async accounts => {
         // Confirm the first user's balance goes up by sendAmount
         console.log("...:", expectedUserBalance.eq(web3.utils.toBN(userBalanceAfter)));
         assert.equal(true, expectedUserBalance.eq(web3.utils.toBN(userBalanceAfter)));
+        // TODO: Deal with difference from gas cost
     });
 })
