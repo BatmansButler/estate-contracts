@@ -3,6 +3,9 @@ pragma solidity ^0.7.0;
 
 // endowl.com - Digital Inheritance Automation
 
+// NOTE: Compiled code size may exceed deployment limit as written due to strings contained in revert calls.
+// TODO: To reduce code size (but lose debugging info) compile with the option "debug.revertStrings" set to "strip".
+
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 // Interface generated from @gnosis.pm/safe-contracts/contracts/base/ModuleManager.sol

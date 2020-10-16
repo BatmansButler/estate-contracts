@@ -86,11 +86,14 @@ module.exports = {
       version: "0.7.1",
       // docker: true,        // Use "0.5.1" you've installed locally with docker (default: false)
       settings: {          // See the solidity docs for advice about optimization and evmVersion
-       optimizer: {
-         enabled: false,
-         runs: 400
-       },
-       // evmVersion: "byzantium"
+        optimizer: {
+          enabled: false,
+          runs: 1
+        },
+        // evmVersion: "byzantium"
+        debug: {
+          // revertStrings: "strip"    // Strip out revert strings to ensure binary is within size limits
+        },
       }
     },
   },
