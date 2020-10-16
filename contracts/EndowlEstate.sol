@@ -7,10 +7,18 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 // Interface generated from @gnosis.pm/safe-contracts/contracts/base/ModuleManager.sol
 import "./IModuleManager.sol";
+import "./IKyberNetworkProxy.sol";
 
 /// @title Digital Inheritance Automation
 /// @author endowl.com
 contract EndowlEstate  {
+    uint constant MAX_UINT = 2**256 - 1;
+
+    // TODO: Assess if Kyber code is resilient to Kyber performing updates to their contracts
+    address constant KYBER_ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address public KYBER_NETWORK_PROXY_ADDRESS = 0x818E6FECD516Ecc3849DAf6845e3EC868087B755;
+    address constant REFERAL_ADDRESS = 0xdac3794d1644D7cE73d098C19f33E7e10271b2bC;
+
     /// @notice Owner of the estate and the assets held within
     address public owner;
     /// @notice Optional trusted party who can assist with estate recover and who takes over managing the estate after confirmation of death
@@ -272,6 +280,57 @@ contract EndowlEstate  {
         emit RemovedBeneficiary(beneficiary, sharesRemoved);
     }
 
+    /// @notice Estate controller or beneficiary in question can change the address of a beneficiary
+    /// @param oldAddress The current address of the beneficiary, to be replaced
+    /// @param newAddress The new address to assign to the beneficiary, replacing the old address
+    function changeBeneficiaryAddress(address oldAddress, address newAddress) public onlyControllerOrBeneficiary(oldAddress) {
+        require(oldAddress != address(0), "Old beneficiary address is missing");
+        require(newAddress != address(0), "New beneficiary address is missing");
+        require(beneficiaryIndex[oldAddress] > 0, "Old address is not a registered beneficiary");
+        uint256 index = beneficiaryIndex[oldAddress] - 1;
+        uint256 shares = beneficiaryShares[oldAddress];
+        beneficiaries[index] = newAddress;
+        beneficiaryShares[oldAddress] = 0;
+        beneficiaryShares[newAddress] = shares;
+        emit ChangedBeneficiaryAddress(oldAddress, newAddress);
+    }
+
+    /// @notice Estate controller can change the number of shares assigned to the given beneficiary
+    /// @param beneficiary Address controlled by beneficiary
+    /// @param newShares Total number of shares to assign to the beneficiary
+    function changeBeneficiaryShares(address beneficiary, uint256 newShares) public onlyController {
+        require(beneficiary != address(0), "Beneficiary address is missing");
+        require(beneficiaryIndex[beneficiary] > 0, "Address is not a registered beneficiary");
+        uint256 oldShares = beneficiaryShares[beneficiary];
+        totalShares = SafeMath.add(SafeMath.sub(totalShares, oldShares), newShares);
+        beneficiaryShares[beneficiary] = newShares;
+        emit ChangedBeneficiaryShares(beneficiary, oldShares, newShares);
+    }
+
+    /// @notice Determine the number of tokens beneficiary is expected to receive based on their shares and the current estate balance
+    /// @param beneficiary Address of the beneficiary to check
+    /// @param token Address of the token to check or the zero-address for ETH
+    function getBeneficiaryBalance(address beneficiary, address token) public view returns (uint256 shareBalance) {
+        // Check if tokens have already been balanced
+        if(isBeneficiaryTokenWithdrawn[beneficiary][token]) {
+            return 0;
+        }
+        // Determine the total amount of ETH or tokens held if not yet known, but don't lock total in permanently
+        uint totalTokens;
+        if(totalTokensKnown[token] > 0) {
+            totalTokens = totalTokensKnown[token];
+        } else {
+            if(address(0) == token) {
+                totalTokens = address(this).balance;
+            } else {
+                totalTokens = IERC20(token).balanceOf(address(this));
+            }
+        }
+        uint256 shareRatio = SafeMath.div(SafeMath.mul(precision, totalShares), beneficiaryShares[beneficiary]);
+        uint256 share = SafeMath.div(SafeMath.mul(precision, totalTokens), shareRatio);
+        return share;
+    }
+
 
     // Gnosis Safe configuration:
 
@@ -386,6 +445,23 @@ contract EndowlEstate  {
     }
 
 
+    // Oracle
+
+    /// @notice If an oracle is enable it may call this to report that the estate owner is believed to be dead
+    /// @param isDead Is the oracle is reporting death?
+    function oracleCallback(bool isDead) public onlyOracle notDead {
+        if(isDead) {
+            // Begin the uncertainty waiting period
+            setUncertain();
+        }
+        else {
+            // Reset the estate owner's status to alive
+            // TODO: Explore if there are any cases where this could disrupt the owner's intended flow regarding the dead man's switch
+            setAlive();
+        }
+    }
+
+
     // Asset management:
 
     /// @notice Send ETH from estate
@@ -408,30 +484,98 @@ contract EndowlEstate  {
 
     // Inheritance
 
-    /// @notice Determine the number of tokens beneficiary is expected to receive based on their shares and the current estate balance
-    /// @param beneficiary Address of the beneficiary to check
-    /// @param token Address of the token to check or the zero-address for ETH
-    function getBeneficiaryBalance(address beneficiary, address token) public view returns (uint256 shareBalance) {
-        // Check if tokens have already been balanced
-        if(isBeneficiaryTokenWithdrawn[beneficiary][token]) {
-            return 0;
+    /// @notice After death has been confirmed, beneficiaries call this to receive their portion of the estate's ETH holdings
+    function claimEthShares() public {
+        claimTokenShares(address(0));
+    }
+
+    /// @notice After death has been confirmed, beneficiaries call this to receive their portion of the estate's holdings of the given ERC20 token
+    /// @param token Address of ERC20 token to claim or zero-address from ETH
+    function claimTokenShares(address token) public onlyDead onlyBeneficiary {
+        determinePoolSize(token);
+        sendShare(msg.sender, token, token);
+    }
+
+    /// @notice After death has been confirmed, beneficiaries call this to receive ETH in exchange for their portion of the estate's holdings of the given ERC20 token
+    /// @param token Address of ERC20 token to exchange for ETH and claim
+    function claimTokenSharesAsEth(address token) public onlyDead onlyBeneficiary {
+        determinePoolSize(token);
+        sendShare(msg.sender, token, address(0));
+    }
+
+    /// @notice After death has been confirmed, the executor can call this to cause the estate's holdings of ETH to be distributed to all beneficiaries
+    function distributeEthShares() public {
+        distributeTokenShares(address(0));
+    }
+
+    /// @notice After death has been confirmed, the executor can call this to cause the estate's holdings of the given token to be distributed to all beneficiaries
+    /// @param token Address of ERC20 token to distribute or zero-address for ETH
+    function distributeTokenShares(address token) public onlyDead onlyExecutor {
+        determinePoolSize(token);
+        for(uint256 i=0; i < beneficiaries.length; i++) {
+            address payable b = address(uint160(beneficiaries[i]));
+            sendShare(b, token, token);
         }
-        // Determine the total amount of ETH or tokens held if not yet known, but don't lock total in permanently
-        uint totalTokens;
-        if(totalTokensKnown[token] > 0) {
-            totalTokens = totalTokensKnown[token];
-        } else {
+    }
+
+    /// @notice After death has been confirmed, the executor can call this to cause the estate's holdings of the given token to be exchanged for ETH then distributed to all beneficiaries
+    /// @param token Address of ERC20 token to exchange for ETH and distribute
+    function distributeTokenSharesAsEth(address token) public onlyDead onlyExecutor {
+        determinePoolSize(token);
+        for(uint256 i=0; i < beneficiaries.length; i++) {
+            address payable b = address(uint160(beneficiaries[i]));
+            sendShare(b, token, address(0));
+        }
+    }
+
+    /// @notice If not yet established, determine the total amount of ETH or ERC20 tokens held by the estate
+    /// @dev This does not account for situations where the estate balance changes after being determined
+    /// @param token Address of ERC20 or zero-address for ETH
+    // TODO: Investigate risk and options regarding estate balance changing after pool size is determined, eg. after first beneficiary has withdrawn
+    // TODO: Track expected balance and compare with actual balance, handle any detected discrepancies...
+    function determinePoolSize(address token) internal {
+        if(totalTokensKnown[token] == 0) {
             if(address(0) == token) {
-                totalTokens = address(this).balance;
+                totalTokensKnown[token] = address(this).balance;
             } else {
-                totalTokens = IERC20(token).balanceOf(address(this));
+                totalTokensKnown[token] = IERC20(token).balanceOf(address(this));
             }
         }
+    }
 
-        uint256 shareRatio = SafeMath.div(SafeMath.mul(precision, totalShares), beneficiaryShares[beneficiary]);
-        uint256 share = SafeMath.div(SafeMath.mul(precision, totalTokens), shareRatio);
-
-        return share;
+    /// @notice Send share of ERC20 token or ETH to beneficiary, optionally exchanging token for ETH or a different ERC token first
+    /// @param beneficiary Address of beneficiary to receive payment from the estate
+    /// @param token Address of ERC20 token held by estate or zero-address for ETH
+    /// @param receiveToken Address of ERC20 token to receive or zero-address for ETH. If not the same as origin 'token', an exchange will be attempted on Kyber
+    function sendShare(address payable beneficiary, address token, address receiveToken) internal {
+        if(!isBeneficiaryTokenWithdrawn[beneficiary][token]) {
+            // TODO: Extensive testing of these operations for edge cases and rounding issues:
+            uint256 shareRatio = SafeMath.div(SafeMath.mul(precision, totalShares), beneficiaryShares[beneficiary]);
+            uint256 share = SafeMath.div(SafeMath.mul(precision, totalTokensKnown[token]), shareRatio);
+            isBeneficiaryTokenWithdrawn[beneficiary][token] = true;
+            if(address(0) == token) {
+                require(beneficiary.send(share), "Problem sending share");
+            } else {
+                if(receiveToken != token) {
+                    if(address(0) == receiveToken) {
+                        receiveToken = KYBER_ETH_ADDRESS;
+                    }
+                    // Convert to desired token or ETH through Kyber
+                    IERC20(token).approve(KYBER_NETWORK_PROXY_ADDRESS, 0);
+                    IERC20(token).approve(KYBER_NETWORK_PROXY_ADDRESS, MAX_UINT);
+                    uint256 min_conversion_rate;
+                    uint256 result;
+                    (min_conversion_rate,) = KyberNetworkProxy(KYBER_NETWORK_PROXY_ADDRESS).getExpectedRate(token, receiveToken, share);
+                    result = KyberNetworkProxy(KYBER_NETWORK_PROXY_ADDRESS).tradeWithHint(token, share, receiveToken, beneficiary, MAX_UINT, min_conversion_rate, REFERAL_ADDRESS, '');
+                    require(result > 0, "Failed to convert token through Kyber");
+                } else {
+                    // Don't require token transfer to succeed, since some tokens don't follow spec.
+                    // TODO: Could use OpenZepelin SafeERC20 to guarantee transfer succeeded
+                    IERC20(token).transfer(beneficiary, share);
+                }
+            }
+            emit BeneficiaryWithdrawal(beneficiary, token, share);
+        }
     }
 
 
