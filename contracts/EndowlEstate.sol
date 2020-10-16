@@ -3,8 +3,9 @@ pragma solidity ^0.7.0;
 
 // endowl.com - Digital Inheritance Automation
 
-//import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+// Interface generated from @gnosis.pm/safe-contracts/contracts/base/ModuleManager.sol
+import "./IModuleManager.sol";
 //import "@openzeppelin/contracts/math/SafeMath.sol";
 
 /// @title Digital Inheritance Automation
@@ -40,6 +41,9 @@ contract EndowlEstate  {
     // address[] public trackedTokens;
 
     enum Lifesign { Alive, Uncertain, Dead, PlayingDead }
+
+    // Used by Gnosis Safe eg. to perform recovery operation
+    enum Operation { Call, DelegateCall }
 
     /// @notice Estate owner's last known lifesign (0: Alive, 1: Uncertain, 2: Dead, 3: PlayingDead)
     Lifesign public liveness;
@@ -203,6 +207,100 @@ contract EndowlEstate  {
     /// @notice Accept ETH deposits
     /// @dev To avoid exceeding gas limit don't perform any other actions
     receive() external payable { }
+
+    /// @notice The Gnosis Safe associated with this contract acts as a co-owner and has the same permissions as the primary estate owner account
+    /// @dev Set to zero address to disable Gnosis Safe co-ownership
+    function setGnosisSafe(address newSafe) public onlyOwner {
+        emit GnosisSafeChanged(gnosisSafe, newSafe);
+        gnosisSafe = newSafe;
+    }
+
+    /// @notice Is a signature from the executor required to perform a recovery of the Gnosis Safe?
+    function setIsExecutorRequiredForSafeRecovery(bool newValue) public onlyOwner {
+        emit IsExecutorRequiredForSafeRecoveryChanged(newValue);
+        isExecutorRequiredForSafeRecovery = newValue;
+    }
+
+    /// @notice Number of beneficiary signatures required to perform a recovery of the Gnosis Safe
+    function setBeneficiariesRequiredForSafeRecovery(uint256 newValue) public onlyOwner {
+        emit BeneficiariesRequiredForSafeRecoveryChanged(newValue);
+        beneficiariesRequiredForSafeRecovery = newValue;
+    }
+
+    // Gnosis Safe recovery related functions:
+
+    /// @dev Allows an executor or beneficiary to confirm a Safe recovery transaction.
+    /// @param dataHash Safe transaction hash.
+    // TODO: Rename this function to make it's specific purpose more clear
+    function confirmTransaction(bytes32 dataHash)
+        public
+        onlyMember
+    {
+        require(!isExecuted[dataHash], "Recovery already executed");
+        isConfirmed[dataHash][msg.sender] = true;
+    }
+
+    /// @dev Returns if Safe transaction is a valid owner replacement transaction.
+    /// @param prevOwner Owner that pointed to the owner to be replaced in the linked list
+    /// @param oldOwner Owner address to be replaced.
+    /// @param newOwner New owner address.
+    function recoverAccess(address prevOwner, address oldOwner, address newOwner)
+        public
+        onlyMember
+    {
+        bytes memory data = abi.encodeWithSignature("swapOwner(address,address,address)", prevOwner, oldOwner, newOwner);
+        bytes32 dataHash = getDataHash(data);
+        require(!isExecuted[dataHash], "Recovery already executed");
+        require(isConfirmedByRequiredParties(dataHash), "Recovery has not enough confirmations");
+        isExecuted[dataHash] = true;
+        // require(manager.execTransactionFromModule(address(manager), 0, data, Enum.Operation.Call), "Could not execute recovery");
+        require(ModuleManager(gnosisSafe).execTransactionFromModule(gnosisSafe, 0, data, uint8(Operation.Call)), "Could not execute recovery");
+    }
+
+    /// @dev Returns if Safe transaction is a valid owner replacement transaction.
+    /// @param dataHash Data hash.
+    /// @return Confirmation status.
+    // TODO: Rename this function to make it's specific purpose more clear
+    function isConfirmedByRequiredParties(bytes32 dataHash)
+        public
+        view
+        returns (bool)
+    {
+        if(isExecutorRequiredForSafeRecovery && !isConfirmed[dataHash][executor]) {
+            return false;
+        }
+        if(beneficiariesRequiredForSafeRecovery > 0 && beneficiaries.length > 0) {
+            uint256 confirmationCount;
+            for (uint256 i = 0; i < beneficiaries.length; i++) {
+                if (isConfirmed[dataHash][beneficiaries[i]]) {
+                    confirmationCount++;
+                }
+                if (confirmationCount == beneficiariesRequiredForSafeRecovery) {
+                    return true;
+                }
+            }
+
+        }
+        return false;
+    }
+
+    /// @dev Returns hash of data encoding owner replacement.
+    /// @param data Data payload.
+    /// @return Data hash.
+    // TODO: Rename this function to make it's specific purpose more clear
+    function getDataHash(bytes memory data)
+        public
+        pure
+        returns (bytes32)
+    {
+        return keccak256(data);
+    }
+
+
+
+
+
+
 
 
     /// @notice Called by beneficiary or executor after owner has been reported dead and the waiting period has passed to establish confirmation of death
