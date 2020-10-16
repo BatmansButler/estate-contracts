@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.7.0;
 
-// Alfred.Estate - Digital Inheritance Automation
+// endowl.com - Digital Inheritance Automation
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 //import "@openzeppelin/contracts/math/SafeMath.sol";
 
 /// @title Digital Inheritance Automation
-/// @author Alfred.Estate
-contract AlfredEstate is AccessControl {
+/// @author endowl.com
+contract EndowlEstate is AccessControl {
     // Define access control roles
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
     bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");

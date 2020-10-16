@@ -11,14 +11,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BatmansButler/estate-contracts.git"
+    "url": "git+https://github.com/endowl/estate-contracts.git"
   },
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/BatmansButler/estate-contracts/issues"
+    "url": "https://github.com/endowl/estate-contracts/issues"
   },
-  "homepage": "https://github.com/BatmansButler/estate-contracts#readme",
+  "homepage": "https://github.com/endowl/estate-contracts#readme",
   "dependencies": {
     "@openzeppelin/contracts": "^3.2.1-solc-0.7"
   }
