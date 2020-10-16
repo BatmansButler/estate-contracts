@@ -24,38 +24,44 @@ contract("EndowlEstate", async accounts => {
         assert.equal(ownerCount, 0);
     });
 
-    it("should have a 'liveness' value of 0 (ie. 'Alive')", async () => {
+    it("should have an initial 'liveness' value of 0 (ie. 'Alive')", async () => {
         let instance = await EndowlEstate.deployed();
         let liveness = await instance.liveness()
         assert.equal(liveness, 0);
     });
 
     let sendAmount = web3.utils.toWei("10", "ether");
+
     it("should accept direct ETH payments", async () => {
         let instance = await EndowlEstate.deployed();
-        let balance = await web3.eth.getBalance(instance.address);
-        assert.equal(balance, 0);
+        let estateBalance = await web3.eth.getBalance(instance.address);
+        assert.equal(estateBalance, 0);
         await instance.send(sendAmount);
-        balance = await web3.eth.getBalance(instance.address);
-        assert.equal(balance, sendAmount);
+        estateBalance = await web3.eth.getBalance(instance.address);
+        assert.equal(estateBalance, sendAmount);
     });
 
-    /*
     it("should send ETH on behalf of owner", async () => {
         let instance = await EndowlEstate.deployed();
-        let balance = await web3.eth.getBalance(instance.address);
-        assert.equal(balance, sendAmount);
+        let estateBalance = await web3.eth.getBalance(instance.address);
+        // Confirm the ETH payment from the previous test is present
+        assert.equal(estateBalance, sendAmount);
         let user = accounts[0];
-        let userBalanceBefore = web3.utils.toBN(await web3.eth.getBalance(user));
+        // let userBalanceBefore = web3.utils.toBN(await web3.eth.getBalance(user));
+        let userBalanceBefore = await web3.eth.getBalance(user);
         console.log("userBalanceBefore:", userBalanceBefore);
         await instance.sendEth(user, sendAmount);
-        balance = await web3.eth.getBalance(instance.address);
-        assert.equal(balance, 0);
-        let userBalanceAfter = web3.utils.toBN(await web3.eth.getBalance(user));
+        estateBalance = await web3.eth.getBalance(instance.address);
+        assert.equal(estateBalance, 0);
+        // let userBalanceAfter = web3.utils.toBN(await web3.eth.getBalance(user));
+        let userBalanceAfter = await web3.eth.getBalance(user);
         console.log("userBalanceAfter:", userBalanceAfter);
         console.log("sendAmount:", sendAmount);
-        console.log("sendAmount + userBalanceBefore:", sendAmount + userBalanceBefore);
+        let expectedUserBalance = web3.utils.toBN(sendAmount).add(web3.utils.toBN(userBalanceBefore));
+        console.log("expectedUserBalance:", expectedUserBalance.toString());
         // assert.equal(userBalanceAfter, userBalanceBefore.plus(web3.utils.toWei("10", "ether")));
+        // Confirm the first user's balance goes up by sendAmount
+        console.log("...:", expectedUserBalance.eq(web3.utils.toBN(userBalanceAfter)));
+        assert.equal(true, expectedUserBalance.eq(web3.utils.toBN(userBalanceAfter)));
     });
-     */
 })
