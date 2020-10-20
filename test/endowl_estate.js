@@ -1,10 +1,5 @@
 const EndowlEstate = artifacts.require("EndowlEstate");
 
-const OWNER_ROLE = web3.utils.keccak256("OWNER_ROLE");
-const EXECUTOR_ROLE = web3.utils.keccak256("EXECUTOR_ROLE");
-const BENEFICIARY_ROLE = web3.utils.keccak256("BENEFICIARY_ROLE");
-const GNOSIS_SAFE_ROLE = web3.utils.keccak256("GNOSIS_SAFE_ROLE");
-
 contract("EndowlEstate", async accounts => {
     it("should be owned by the first account", async () => {
         let instance = await EndowlEstate.deployed();
