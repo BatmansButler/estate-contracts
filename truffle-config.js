@@ -92,7 +92,7 @@ module.exports = {
         },
         // evmVersion: "byzantium"
         debug: {
-          // revertStrings: "strip"    // Strip out revert strings to ensure binary is within size limits
+          revertStrings: "strip"    // Strip out revert strings to ensure binary is within size limits
         },
       }
     },

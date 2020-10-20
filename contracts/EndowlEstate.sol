@@ -4,7 +4,7 @@ pragma solidity ^0.7.0;
 // endowl.com - Digital Inheritance Automation
 
 // NOTE: Compiled code size may exceed deployment limit as written due to strings contained in revert calls.
-// TODO: To reduce code size (but lose debugging info) compile with the option "debug.revertStrings" set to "strip".
+// TODO: To reduce code size (at the cost of extra debugging info) set the compile option "debug.revertStrings" to "strip" in truffle-config.js.
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
@@ -69,6 +69,7 @@ contract EndowlEstate  {
     // TODO: Ability to modify uncertaintyPeriod
 
     // Dead Man's Switch settings
+
     /// @notice Is the dead man's switch enabled
     bool public isDeadMansSwitchEnabled;
     /// @notice How frequently (in seconds) must the estate owner check-in before the dead man's switch can be triggered
@@ -77,6 +78,7 @@ contract EndowlEstate  {
     uint256 public deadMansSwitchLastCheckin;
 
     // Gnosis Safe Recovery settings
+
     /// @notice Is a signature required from the executor to perform a recovery of the Gnosis Safe?
     bool public isExecutorRequiredForSafeRecovery;
     /// @notice Number of beneficiaries required to perform a recovery the Gnosis Safe
@@ -220,6 +222,7 @@ contract EndowlEstate  {
     /// @notice Accept ETH deposits
     /// @dev To avoid exceeding gas limit don't perform any other actions
     receive() external payable { }
+
 
     // User management
 
