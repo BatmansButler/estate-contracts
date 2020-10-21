@@ -97,7 +97,7 @@ contract EndowlEstate  {
     /// @notice The estate owner has been confirmed to be alive
     event ConfirmationOfLife(address indexed reporter);
 
-    /// @notice Ownership of the estate as been transfered to a new address
+    /// @notice Ownership of the estate as been transferred to a new address
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     /// @notice Address of the Gnosis Safe has changed
     event GnosisSafeChanged(address indexed gnosisSafe, address indexed newSafe);
@@ -473,9 +473,10 @@ contract EndowlEstate  {
     /// @notice Send ETH from estate
     /// @param recipient Address to send ETH to
     /// @param amount How much ETH to send from the estate in Wei
-    /// @return Success of transfer
-    function sendEth(address payable recipient, uint256 amount) public onlyOwner returns(bool) {
-        return recipient.send(amount);
+    function sendEth(address payable recipient, uint256 amount) public onlyOwner {
+//        return recipient.send(amount);
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "Transfer failed");
     }
 
     /// @notice Send ERC20 token from estate
