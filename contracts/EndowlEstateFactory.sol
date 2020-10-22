@@ -12,12 +12,14 @@ contract EndowlEstateFactory {
     event estateCreated(address indexed estate, address indexed owner);
 
     /// @notice Create a new estate owned by the caller
+    /// @param salt Arbitrary number used while calculating address that estate will be deployed to; start with zero for first estate and increment for subsequent estates to get predictable addresses
+    /// @param owner Optional address to assign ownership of the estate to
     /// @param oracle Optional trusted address to accept reports of death from
     /// @param executor Optional trusted address to assign as estate executor
-    /// @param salt Arbitrary number used while calculating address that estate will be deployed to; start with zero for first estate and increment for subsequent estates to get predictable addresses
     /// @return estateAddress Address that estate was deployed to
     /// @dev Use CREATE2 to create estate at pre-determinable address
     function newEstate(uint256 salt, address owner, address oracle, address executor) public payable returns (address payable estateAddress) {
+        // TODO: Assess if the finalSalt should be based on the initial OWNER rather than the CALLER (in the event someone sets up an estate on behalf of someone else...)
         // Make the final salt uniquely specific to the caller
         bytes32 finalSalt = keccak256(abi.encodePacked(salt, msg.sender));
         // Deploy estate contract using CREATE2

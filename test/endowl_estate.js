@@ -48,5 +48,5 @@ contract("EndowlEstate", async accounts => {
         assert.isTrue(expectedRecipientBalance.eq(web3.utils.toBN(recipientBalanceAfter)), "Recipients final balance increased as expected");
     });
 
-    // TODO: Test sendToken
+    // TODO: Test sendToken and many other functions...
 })

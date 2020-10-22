@@ -6,19 +6,24 @@ import "truffle/DeployedAddresses.sol";
 import "../contracts/EndowlEstateFactory.sol";
 import "../contracts/EndowlEstate.sol";
 
+/// @title Endowl Estate Factory tests
+/// @author endowl.com
 contract TestEndowlEstateFactory {
     uint public initialBalance = 1 ether;
+    uint256 lastSalt = 0;
 
-    // EndowlEstate estate;
+    function unusedSalt() internal returns (uint256) {
+        lastSalt = lastSalt + 1;
+        return lastSalt;
+    }
 
-    function testGetEstateAddress() public {
+    /// @dev Test that passing different salts to getEstateAddress produces different results
+    function testGetEstateAddressDifferentSalt() public {
         EndowlEstateFactory factory = EndowlEstateFactory(DeployedAddresses.EndowlEstateFactory());
         uint256 salt;
         address creator;
         address expected1;
         address expected2;
-        address expected3;
-        address expected4;
 
         // Compare expected addresses when the creator matches but the salt is different
         salt = 0;
@@ -28,21 +33,30 @@ contract TestEndowlEstateFactory {
         creator = address(this);
         expected2 = factory.getEstateAddress(creator, salt);
         Assert.notEqual(expected1, expected2, "Addresses should be different when salt is different");
+    }
+
+    /// @dev Test that passing different creator addresses to getEstateAddress produces different results
+    function testGetEstateAddressDifferentCreator() public {
+        EndowlEstateFactory factory = EndowlEstateFactory(DeployedAddresses.EndowlEstateFactory());
+        uint256 salt;
+        address creator;
+        address expected1;
+        address expected2;
 
         // Compare expected addresses when the creator is different but the salt matches
         salt = 0;
-        creator = address(expected1);
-        expected3 = factory.getEstateAddress(creator, salt);
+        creator = 0x110001b0A438E46d4558bdE95b466b2852f3489f;
+        expected1 = factory.getEstateAddress(creator, salt);
         salt = 0;
-        creator = address(expected2);
-        expected4 = factory.getEstateAddress(creator, salt);
+        creator = 0x11010e4A89486d9BCb66EE0d5EEFDed3ef8f68e9;
+        expected2 = factory.getEstateAddress(creator, salt);
         Assert.notEqual(expected1, expected2, "Addresses should be different when creator is different");
     }
 
-    function testNewEstate() public {
+    function testNewEstateWithEmptyParams() public {
         EndowlEstateFactory factory = EndowlEstateFactory(DeployedAddresses.EndowlEstateFactory());
         // Create a new estate with default empty parameters
-        uint256 salt = 0;
+        uint256 salt = unusedSalt();
         address owner = address(0);
         address oracle = address(0);
         address executor = address(0);
@@ -50,43 +64,52 @@ contract TestEndowlEstateFactory {
         EndowlEstate estate = EndowlEstate(estateAddress);
         // Confirm this test contract owns the new estate
         Assert.equal(estate.owner(), address(this), "Estate should be owned by this address");
+        // Confirm oracle and executor are not set (ie. zero address)
         Assert.equal(estate.oracle(), address(0), "Oracle should not be set");
         Assert.equal(estate.executor(), address(0), "Executor should not be set");
-        // Compare expected and actual addresses
+        // Compare expected and actual address of estate contract deployment
         address creator = address(this);
         address expected = factory.getEstateAddress(creator, salt);
         Assert.equal(expected, address(estate), "Estate address does not match expected address");
     }
 
-    function testNewEstateWithParams() public {
+    function testNewEstateWithFilledParams() public {
         EndowlEstateFactory factory = EndowlEstateFactory(DeployedAddresses.EndowlEstateFactory());
 
         // Create a new estate with parameters filled in
-        uint256 salt = 1;
+        uint256 salt = unusedSalt();
         address owner = 0x110001b0A438E46d4558bdE95b466b2852f3489f;
         address oracle = 0x66F16412E633d8B4630855f39C37690ACF685228;
         address executor = 0x11010e4A89486d9BCb66EE0d5EEFDed3ef8f68e9;
         address payable estateAddress = factory.newEstate(salt, owner, oracle, executor);
         EndowlEstate estate = EndowlEstate(estateAddress);
         // Confirm this test contract owns the new estate
-        Assert.equal(estate.owner(), owner, "Estate should be owned the designated address");
+        Assert.equal(estate.owner(), owner, "Estate should be owned by the designated address");
         Assert.equal(estate.oracle(), oracle, "Oracle should be the designated address");
         Assert.equal(estate.executor(), executor, "Executor should be the designated address");
+        // Compare expected and actual address of estate contract deployment
+        address creator = address(this);
+        address expected = factory.getEstateAddress(creator, salt);
+        Assert.equal(expected, address(estate), "Estate address does not match expected address");
     }
 
+    /// @dev Test that the same creator calling newEstate with the same salt more than once fails
     function testMultipleCallsToNewEstatesWithSameSaltAndCreator() public {
         EndowlEstateFactory factory = EndowlEstateFactory(DeployedAddresses.EndowlEstateFactory());
         // Create a new estate with default empty parameters
-        uint256 salt = 2;
+        uint256 salt = unusedSalt();
         address owner = address(0);
         address oracle = address(0);
         address executor = address(0);
         // Call factory.newEstate twice with the same parameters
         bytes memory newEstateData = abi.encodeWithSelector(EndowlEstateFactory.newEstate.selector, salt, owner, oracle, executor);
         bool r;
+        // First call with new salt should succeed
         (r, ) = address(factory).call(newEstateData);
         Assert.isTrue(r, "First call to newEstate should succeed");
+        // Second call with same salt and same caller should fail (contract already exists)
         (r, ) = address(factory).call(newEstateData);
         Assert.isFalse(r, "Second call to newEstate from the same address and using the same salt should fail");
     }
+
 }
