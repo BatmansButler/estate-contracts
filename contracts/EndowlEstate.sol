@@ -140,6 +140,14 @@ contract EndowlEstate  {
         beneficiariesRequiredForSafeRecovery = 1;
     }
 
+    /// @dev If called by the owner, check them in as alive
+    modifier ownerCheckin() {
+        _;
+        if(isDeadMansSwitchEnabled && (msg.sender == owner || msg.sender == gnosisSafe)) {
+            deadMansSwitchLastCheckin = block.timestamp;
+        }
+    }
+
     modifier onlyOwner() {
         require(msg.sender == owner || msg.sender == gnosisSafe, "Not owner");
         require(liveness != Lifesign.Dead, "Dead");
@@ -228,7 +236,7 @@ contract EndowlEstate  {
 
     /// @notice Transfer ownership of this estate contract to another address
     /// @notice newOwner Address of account to transfer ownership to
-    function transferOwnership(address newOwner) public onlyOwner {
+    function transferOwnership(address newOwner) public onlyOwner ownerCheckin {
         require(newOwner != address(0), "Address missing");
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
@@ -236,7 +244,7 @@ contract EndowlEstate  {
 
     /// @notice Set the oracle that can report the owner's death. Set to zero-address to disable
     /// @param newOracle Address of oracle which is able to make trusted reports of the estate owner's death
-    function changeOracle(address newOracle) public onlyOwner {
+    function changeOracle(address newOracle) public onlyOwner ownerCheckin {
         // Allow setting to zero address to disable oracle
         // require(newOracle != address(0), "New oracle is missing");
         emit OracleChanged(oracle, newOracle);
@@ -245,7 +253,7 @@ contract EndowlEstate  {
 
     /// @notice Set the executor's address. Set to zero-address to disable
     /// @param newExecutor Address of the executor who will take over management of the estate after confirmation of death
-    function changeExecutor(address newExecutor) public onlyOwnerOrExecutor {
+    function changeExecutor(address newExecutor) public onlyOwnerOrExecutor ownerCheckin {
         // Allow setting to zero address to remove executor
         // require(newExecutor != address(0), "New executor is missing");
         emit ExecutorChanged(executor, newExecutor);
@@ -256,7 +264,7 @@ contract EndowlEstate  {
     /// @param newBeneficiary Address of the beneficiary to be added
     /// @param shares Number of shares to be assigned to the new beneficiary and increasing the total number of shares assigned to all beneficiaries
     /// @dev Number of shares may be zero to permit recovery and report-of-death operations without granting rights to inheritance
-    function addBeneficiary(address newBeneficiary, uint256 shares) public onlyController {
+    function addBeneficiary(address newBeneficiary, uint256 shares) public onlyController ownerCheckin {
         require(newBeneficiary != address(0), "Address missing");
         require(beneficiaryIndex[newBeneficiary] == 0, "Beneficiary exists");
         beneficiaries.push(newBeneficiary);
@@ -269,7 +277,7 @@ contract EndowlEstate  {
 
     /// @notice Estate controller (owner or executor following confirmation of death) removes a beneficiary
     /// @param beneficiary Address of the beneficiary to be removed. Any shares they have will be removed from the total.
-    function removeBeneficiary(address beneficiary) public onlyController {
+    function removeBeneficiary(address beneficiary) public onlyController ownerCheckin {
         require(beneficiary != address(0), "Address missing");
         uint256 index = beneficiaryIndex[beneficiary];
         require(index > 0, "Beneficiary not found");
@@ -289,7 +297,7 @@ contract EndowlEstate  {
     /// @notice Estate controller or beneficiary in question can change the address of a beneficiary
     /// @param oldAddress The current address of the beneficiary, to be replaced
     /// @param newAddress The new address to assign to the beneficiary, replacing the old address
-    function changeBeneficiaryAddress(address oldAddress, address newAddress) public onlyControllerOrBeneficiary(oldAddress) {
+    function changeBeneficiaryAddress(address oldAddress, address newAddress) public onlyControllerOrBeneficiary(oldAddress) ownerCheckin {
         require(oldAddress != address(0), "Address missing");
         require(newAddress != address(0), "New address missing");
         require(beneficiaryIndex[oldAddress] > 0, "Beneficiary not found");
@@ -304,7 +312,7 @@ contract EndowlEstate  {
     /// @notice Estate controller can change the number of shares assigned to the given beneficiary
     /// @param beneficiary Address controlled by beneficiary
     /// @param newShares Total number of shares to assign to the beneficiary
-    function changeBeneficiaryShares(address beneficiary, uint256 newShares) public onlyController {
+    function changeBeneficiaryShares(address beneficiary, uint256 newShares) public onlyController ownerCheckin {
         require(beneficiary != address(0), "Address missing");
         require(beneficiaryIndex[beneficiary] > 0, "Beneficiary not found");
         uint256 oldShares = beneficiaryShares[beneficiary];
@@ -342,19 +350,19 @@ contract EndowlEstate  {
 
     /// @notice The Gnosis Safe associated with this contract acts as a co-owner and has the same permissions as the primary estate owner account
     /// @dev Set to zero address to disable Gnosis Safe co-ownership
-    function setGnosisSafe(address newSafe) public onlyOwner {
+    function setGnosisSafe(address newSafe) public onlyOwner ownerCheckin {
         emit GnosisSafeChanged(gnosisSafe, newSafe);
         gnosisSafe = newSafe;
     }
 
     /// @notice Is a signature from the executor required to perform a recovery of the Gnosis Safe?
-    function setIsExecutorRequiredForSafeRecovery(bool newValue) public onlyOwner {
+    function setIsExecutorRequiredForSafeRecovery(bool newValue) public onlyOwner ownerCheckin {
         emit IsExecutorRequiredForSafeRecoveryChanged(newValue);
         isExecutorRequiredForSafeRecovery = newValue;
     }
 
     /// @notice Number of beneficiary signatures required to perform a recovery of the Gnosis Safe
-    function setBeneficiariesRequiredForSafeRecovery(uint256 newValue) public onlyOwner {
+    function setBeneficiariesRequiredForSafeRecovery(uint256 newValue) public onlyOwner ownerCheckin {
         emit BeneficiariesRequiredForSafeRecoveryChanged(newValue);
         beneficiariesRequiredForSafeRecovery = newValue;
     }
@@ -444,7 +452,7 @@ contract EndowlEstate  {
 
     /// @notice The estate owner can set the time in seconds between check-ins before the dead man's switch can be triggered
     /// @param newValue Maximum safe time between check-ins in seconds
-    function setDeadMansSwitchCheckinSeconds(uint256 newValue) public onlyOwner {
+    function setDeadMansSwitchCheckinSeconds(uint256 newValue) public onlyOwner ownerCheckin {
         require(0 != newValue, "Not zero");
         emit DeadMansSwitchCheckinSecondsChanged(newValue);
         deadMansSwitchCheckinSeconds = newValue;
@@ -473,7 +481,7 @@ contract EndowlEstate  {
     /// @notice Send ETH from estate
     /// @param recipient Address to send ETH to
     /// @param amount How much ETH to send from the estate in Wei
-    function sendEth(address payable recipient, uint256 amount) public onlyOwner {
+    function sendEth(address payable recipient, uint256 amount) public onlyOwner ownerCheckin {
 //        return recipient.send(amount);
         (bool success, ) = recipient.call{value: amount}("");
         require(success, "Transfer failed");
@@ -484,7 +492,7 @@ contract EndowlEstate  {
     /// @param token Address of ERC20 token to send
     /// @param amount How much of token to send from the estate in smallest unit
     /// @return Success of transfer
-    function sendToken(address payable recipient, address token, uint256 amount) public onlyOwner returns(bool) {
+    function sendToken(address payable recipient, address token, uint256 amount) public onlyOwner ownerCheckin returns(bool) {
         return IERC20(token).transfer(recipient, amount);
     }
 
@@ -589,7 +597,7 @@ contract EndowlEstate  {
     // Life and death decisions:
 
     /// @notice  USE WITH CAUTION: while playing dead is temporary, actions taken by executors and beneficiaries during that time are permanent. Play dead to enable testing of post-death actions including executor control and beneficiary withdrawals.
-    function playDead() public onlyOwner {
+    function playDead() public onlyOwner ownerCheckin {
         emit PlayingDead();
         liveness = Lifesign.PlayingDead;
     }
@@ -607,7 +615,7 @@ contract EndowlEstate  {
     }
 
     /// @notice Called by estate owner to confirm they are still alive
-    function confirmLife() public onlyOwner {
+    function confirmLife() public onlyOwner ownerCheckin {
         setAlive();
     }
 
@@ -616,9 +624,12 @@ contract EndowlEstate  {
         emit ConfirmationOfLife(msg.sender);
         liveness = Lifesign.Alive;
         declareDeadAfter = 0;
+    // owner checkin moved to separate modifier function
+    /*
         if(isDeadMansSwitchEnabled) {
             deadMansSwitchLastCheckin = block.timestamp;
         }
+    */
     }
 
     /// @notice Set estate owner's liveness as uncertain and establish time limit before death may be declared
