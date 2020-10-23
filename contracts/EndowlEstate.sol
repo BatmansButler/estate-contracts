@@ -4,7 +4,7 @@ pragma solidity ^0.7.0;
 // endowl.com - Digital Inheritance Automation
 
 // NOTE: Compiled code size may exceed deployment limit as written due to strings contained in revert calls.
-// TODO: To reduce code size (at the cost of extra debugging info) set the compile option "debug.revertStrings" to "strip" in truffle-config.js.
+//       To reduce code size (at the cost of extra debugging info) set the compile option "debug.revertStrings" to "strip" in truffle-config.js.
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
@@ -63,10 +63,8 @@ contract EndowlEstate  {
 
     /// @notice If not zero, the timestamp after which the estate owner may be declared dead
     uint256 public declareDeadAfter;
-    /// @notice The amount of time after death is reported before it can be confirmed
+    /// @notice The amount of time after death is reported before it can be confirmed, stored in seconds
     uint256 public uncertaintyPeriod = 8 weeks;
-
-    // TODO: Ability to modify uncertaintyPeriod
 
     // Dead Man's Switch settings
 
@@ -123,6 +121,8 @@ contract EndowlEstate  {
     event IsDeadMansSwitchEnabledChanged(bool indexed newValue);
     /// @notice Dead Man's Switch timer has been modified
     event DeadMansSwitchCheckinSecondsChanged(uint256 indexed newValue);
+    /// @notice Uncertainty Period timer has been modified to new number of seconds
+    event UncertaintyPeriodChanged(uint256 indexed newValue);
 
     // event TrackedTokenAdded(address indexed token);
     // event TrackedTokenRemoved(address indexed token);
@@ -456,6 +456,14 @@ contract EndowlEstate  {
         require(0 != newValue, "Not zero");
         emit DeadMansSwitchCheckinSecondsChanged(newValue);
         deadMansSwitchCheckinSeconds = newValue;
+    }
+
+    /// @notice The estate owner can set the time in seconds between accepting a report of their death and confirming it
+    /// @param newValue Minimum time in seconds that must pass following a valid report of death before a confirmation of death will be accepted
+    function setUncertaintyPeriodSeconds(uint256 newValue) public onlyOwner ownerCheckin {
+        require(0 != newValue, "Not zero");
+        emit UncertaintyPeriodChanged(newValue);
+        uncertaintyPeriod = newValue;
     }
 
 
