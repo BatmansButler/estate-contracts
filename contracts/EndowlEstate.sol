@@ -143,71 +143,51 @@ contract EndowlEstate  {
     /// @dev If called by the owner, check them in as alive
     modifier ownerCheckin() {
         _;
-        if(isDeadMansSwitchEnabled && (msg.sender == owner || msg.sender == gnosisSafe)) {
+//        if(isDeadMansSwitchEnabled && (msg.sender == owner || msg.sender == gnosisSafe)) {
+        if(isDeadMansSwitchEnabled && isOwner(msg.sender)) {
             deadMansSwitchLastCheckin = block.timestamp;
         }
     }
 
     modifier onlyOwner() {
-        require(msg.sender == owner || msg.sender == gnosisSafe, "Not owner");
-        require(liveness != Lifesign.Dead, "Dead");
+        require(isOwner(msg.sender));
+        // require(msg.sender == owner || msg.sender == gnosisSafe, "Not owner");
+        // require(liveness != Lifesign.Dead, "Dead");
         _;
     }
 
     modifier onlyExecutor() {
-        require(msg.sender == executor, "Not executor");
+        require(isExecutor(msg.sender), "Not executor");
         _;
     }
 
     modifier onlyOwnerOrExecutor() {
-        require(msg.sender == owner || msg.sender == gnosisSafe || msg.sender == executor, "Not owner or executor");
+        require(isOwner(msg.sender) || isExecutor(msg.sender), "Not owner or executor");
         _;
     }
 
     modifier onlyController() {
-        if(liveness == Lifesign.PlayingDead) {
-            // The owner is simulating death
-            require(msg.sender == owner || msg.sender == gnosisSafe || msg.sender == executor, "Playing dead, not controller");
-        } else if(liveness != Lifesign.Dead) {
-            // The owner is not dead or simulating death
-            require(msg.sender == owner || msg.sender == gnosisSafe, "Alive, not owner");
-        } else {
-            // The owner is dead
-            require(msg.sender == executor, "Dead, not executor");
-        }
+        require(isController(msg.sender), "Not controller");
         _;
     }
 
     modifier onlyControllerOrBeneficiary(address beneficiary) {
-        if(msg.sender == beneficiary) {
-            require(beneficiaryIndex[beneficiary] > 0, "Beneficiary not found");
-        } else {
-            if(liveness == Lifesign.PlayingDead) {
-                // The owner is simulating death
-                require(msg.sender == owner || msg.sender == gnosisSafe || msg.sender == executor, "Playing dead, not controller");
-            } else if(liveness != Lifesign.Dead) {
-                // The owner is not dead or simulating death
-                require(msg.sender == owner || msg.sender == gnosisSafe, "Alive, not owner");
-            } else {
-                // The owner is dead
-                require(msg.sender == executor, "Dead, not executor");
-            }
-        }
+        require(isController(msg.sender) || isBeneficiary(msg.sender), "Not controller or beneficiary");
         _;
     }
 
     modifier onlyBeneficiary() {
-        require(beneficiaryIndex[msg.sender] > 0, "Beneficiary not found");
+        require(isBeneficiary(msg.sender), "Beneficiary not found");
         _;
     }
 
     modifier onlyMember() {
-        require(msg.sender == owner || msg.sender == gnosisSafe || msg.sender == executor || beneficiaryIndex[msg.sender] > 0, "Member not found");
+        require(isOwner(msg.sender) || isExecutor(msg.sender) || isBeneficiary(msg.sender), "Member not found");
         _;
     }
 
     modifier onlyOracle() {
-        require(msg.sender == oracle, "Not oracle");
+        require(isOracle(msg.sender), "Not oracle");
         _;
     }
 
@@ -246,7 +226,6 @@ contract EndowlEstate  {
     /// @param newOracle Address of oracle which is able to make trusted reports of the estate owner's death
     function changeOracle(address newOracle) public onlyOwner ownerCheckin {
         // Allow setting to zero address to disable oracle
-        // require(newOracle != address(0), "New oracle is missing");
         emit OracleChanged(oracle, newOracle);
         oracle = newOracle;
     }
@@ -255,7 +234,6 @@ contract EndowlEstate  {
     /// @param newExecutor Address of the executor who will take over management of the estate after confirmation of death
     function changeExecutor(address newExecutor) public onlyOwnerOrExecutor ownerCheckin {
         // Allow setting to zero address to remove executor
-        // require(newExecutor != address(0), "New executor is missing");
         emit ExecutorChanged(executor, newExecutor);
         executor = newExecutor;
     }
@@ -266,7 +244,8 @@ contract EndowlEstate  {
     /// @dev Number of shares may be zero to permit recovery and report-of-death operations without granting rights to inheritance
     function addBeneficiary(address newBeneficiary, uint256 shares) public onlyController ownerCheckin {
         require(newBeneficiary != address(0), "Address missing");
-        require(beneficiaryIndex[newBeneficiary] == 0, "Beneficiary exists");
+//        require(beneficiaryIndex[newBeneficiary] == 0, "Beneficiary exists");
+        require(!isBeneficiary(newBeneficiary), "Beneficiary exists");
         beneficiaries.push(newBeneficiary);
         uint256 index = beneficiaries.length;
         beneficiaryIndex[newBeneficiary] = index;
@@ -300,7 +279,8 @@ contract EndowlEstate  {
     function changeBeneficiaryAddress(address oldAddress, address newAddress) public onlyControllerOrBeneficiary(oldAddress) ownerCheckin {
         require(oldAddress != address(0), "Address missing");
         require(newAddress != address(0), "New address missing");
-        require(beneficiaryIndex[oldAddress] > 0, "Beneficiary not found");
+//        require(beneficiaryIndex[oldAddress] > 0, "Beneficiary not found");
+        require(isBeneficiary(oldAddress), "Beneficiary not found");
         uint256 index = beneficiaryIndex[oldAddress] - 1;
         uint256 shares = beneficiaryShares[oldAddress];
         beneficiaries[index] = newAddress;
@@ -314,7 +294,8 @@ contract EndowlEstate  {
     /// @param newShares Total number of shares to assign to the beneficiary
     function changeBeneficiaryShares(address beneficiary, uint256 newShares) public onlyController ownerCheckin {
         require(beneficiary != address(0), "Address missing");
-        require(beneficiaryIndex[beneficiary] > 0, "Beneficiary not found");
+//        require(beneficiaryIndex[beneficiary] > 0, "Beneficiary not found");
+        require(isBeneficiary(beneficiary), "Beneficiary not found");
         uint256 oldShares = beneficiaryShares[beneficiary];
         totalShares = SafeMath.add(SafeMath.sub(totalShares, oldShares), newShares);
         beneficiaryShares[beneficiary] = newShares;
@@ -626,6 +607,49 @@ contract EndowlEstate  {
     function confirmLife() public onlyOwner ownerCheckin {
         setAlive();
     }
+
+    /// @notice Is the given address a living owner
+    /// @param who Address to check
+    /// @return the address is an owner and considered alive
+    function isOwner(address who) public view returns(bool) {
+        if(liveness != Lifesign.Dead && (who == owner || who == gnosisSafe)) {
+                return true;
+        }
+        return false;
+    }
+
+    function isExecutor(address who) public view returns(bool) {
+        if(who == executor) {
+            return true;
+        }
+        return false;
+    }
+
+    function isController(address who) public view returns(bool) {
+        if(isOwner(who)) {
+            return true;
+        } else if(isExecutor(who) && (liveness == Lifesign.Dead || liveness == Lifesign.PlayingDead)) {
+            return true;
+        }
+        return false;
+    }
+
+
+    function isBeneficiary(address who) public view returns(bool) {
+        if(beneficiaryIndex[who] > 0) {
+            return true;
+        }
+        return false;
+    }
+
+
+    function isOracle(address who) public view returns(bool) {
+        if(who == oracle) {
+            return true;
+        }
+        return false;
+    }
+
 
     /// @notice Set estate owner as alive and reset the dead man's switch timer if it's enabled
     function setAlive() internal notDead {
