@@ -140,10 +140,9 @@ contract EndowlEstate  {
         beneficiariesRequiredForSafeRecovery = 1;
     }
 
-    /// @dev If called by the owner, check them in as alive
+    /// @dev If called by the owner and the dead man's switch is enabled, check them in as alive
     modifier ownerCheckin() {
         _;
-//        if(isDeadMansSwitchEnabled && (msg.sender == owner || msg.sender == gnosisSafe)) {
         if(isDeadMansSwitchEnabled && isOwner(msg.sender)) {
             deadMansSwitchLastCheckin = block.timestamp;
         }
@@ -171,8 +170,8 @@ contract EndowlEstate  {
         _;
     }
 
-    modifier onlyControllerOrBeneficiary(address beneficiary) {
-        require(isController(msg.sender) || isBeneficiary(msg.sender), "Not controller or beneficiary");
+    modifier onlyControllerOrThisBeneficiary(address beneficiary) {
+        require(isController(msg.sender) || (isBeneficiary(msg.sender) && beneficiary == msg.sender), "Not controller or specified beneficiary");
         _;
     }
 
@@ -244,8 +243,7 @@ contract EndowlEstate  {
     /// @dev Number of shares may be zero to permit recovery and report-of-death operations without granting rights to inheritance
     function addBeneficiary(address newBeneficiary, uint256 shares) public onlyController ownerCheckin {
         require(newBeneficiary != address(0), "Address missing");
-//        require(beneficiaryIndex[newBeneficiary] == 0, "Beneficiary exists");
-        require(!isBeneficiary(newBeneficiary), "Beneficiary exists");
+        require(!isBeneficiary(newBeneficiary), "Beneficiary already exists");
         beneficiaries.push(newBeneficiary);
         uint256 index = beneficiaries.length;
         beneficiaryIndex[newBeneficiary] = index;
@@ -276,10 +274,9 @@ contract EndowlEstate  {
     /// @notice Estate controller or beneficiary in question can change the address of a beneficiary
     /// @param oldAddress The current address of the beneficiary, to be replaced
     /// @param newAddress The new address to assign to the beneficiary, replacing the old address
-    function changeBeneficiaryAddress(address oldAddress, address newAddress) public onlyControllerOrBeneficiary(oldAddress) ownerCheckin {
+    function changeBeneficiaryAddress(address oldAddress, address newAddress) public onlyControllerOrThisBeneficiary(oldAddress) ownerCheckin {
         require(oldAddress != address(0), "Address missing");
         require(newAddress != address(0), "New address missing");
-//        require(beneficiaryIndex[oldAddress] > 0, "Beneficiary not found");
         require(isBeneficiary(oldAddress), "Beneficiary not found");
         uint256 index = beneficiaryIndex[oldAddress] - 1;
         uint256 shares = beneficiaryShares[oldAddress];
@@ -294,7 +291,6 @@ contract EndowlEstate  {
     /// @param newShares Total number of shares to assign to the beneficiary
     function changeBeneficiaryShares(address beneficiary, uint256 newShares) public onlyController ownerCheckin {
         require(beneficiary != address(0), "Address missing");
-//        require(beneficiaryIndex[beneficiary] > 0, "Beneficiary not found");
         require(isBeneficiary(beneficiary), "Beneficiary not found");
         uint256 oldShares = beneficiaryShares[beneficiary];
         totalShares = SafeMath.add(SafeMath.sub(totalShares, oldShares), newShares);
@@ -608,9 +604,9 @@ contract EndowlEstate  {
         setAlive();
     }
 
-    /// @notice Is the given address a living owner
+    /// @notice Is the given address an owner of the estate and not considered dead
     /// @param who Address to check
-    /// @return the address is an owner and considered alive
+    /// @return true if the address is an owner and considered alive, false otherwise
     function isOwner(address who) public view returns(bool) {
         if(liveness != Lifesign.Dead && (who == owner || who == gnosisSafe)) {
                 return true;
@@ -618,6 +614,9 @@ contract EndowlEstate  {
         return false;
     }
 
+    /// @notice Is the given address the executor of the estate
+    /// @param who Address to check
+    /// @return true if the address is the executor, false otherwise
     function isExecutor(address who) public view returns(bool) {
         if(who == executor) {
             return true;
@@ -625,6 +624,9 @@ contract EndowlEstate  {
         return false;
     }
 
+    /// @notice Is the given address in control of the estate
+    /// @param who Address to check
+    /// @return true if the address is the living owner; true for the executor if the owner is considered dead or playing dead; false otherwise
     function isController(address who) public view returns(bool) {
         if(isOwner(who)) {
             return true;
@@ -634,7 +636,9 @@ contract EndowlEstate  {
         return false;
     }
 
-
+    /// @notice Is the given address a beneficiary of the estate
+    /// @param who Address to check
+    /// @return true if the address is a beneficiary, false otherwise
     function isBeneficiary(address who) public view returns(bool) {
         if(beneficiaryIndex[who] > 0) {
             return true;
@@ -643,6 +647,9 @@ contract EndowlEstate  {
     }
 
 
+    /// @notice Is the given address the liveness oracle for the estate
+    /// @param who Address to check
+    /// @return true for the liveness oracle, false otherwise
     function isOracle(address who) public view returns(bool) {
         if(who == oracle) {
             return true;
@@ -656,12 +663,6 @@ contract EndowlEstate  {
         emit ConfirmationOfLife(msg.sender);
         liveness = Lifesign.Alive;
         declareDeadAfter = 0;
-    // owner checkin moved to separate modifier function
-    /*
-        if(isDeadMansSwitchEnabled) {
-            deadMansSwitchLastCheckin = block.timestamp;
-        }
-    */
     }
 
     /// @notice Set estate owner's liveness as uncertain and establish time limit before death may be declared
